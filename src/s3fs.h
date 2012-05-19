@@ -84,7 +84,7 @@ static pthread_mutex_t *mutex_buf = NULL;
 
 static struct fuse_operations s3fs_oper;
 
-std::string lookupMimeType(std::string);
+std::string lookupMimeType(std::string, char**);
 std::string initiate_multipart_upload(const char *path, off_t size, headers_t meta);
 std::string upload_part(const char *path, const char *source, int part_number, std::string upload_id);
 std::string copy_part(const char *from, const char *to, int part_number, std::string upload_id, headers_t meta);

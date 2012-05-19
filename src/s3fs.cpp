@@ -483,7 +483,7 @@ static int put_headers(const char *path, headers_t meta) {
   for (headers_t::iterator iter = meta.begin(); iter != meta.end(); ++iter) {
     string key = (*iter).first;
     string value = (*iter).second;
-    if (key == "Content-Type")
+    if (key == "Content-Type" || key == "Content-Encoding")
       headers.append(key + ":" + value);
     if (key.substr(0,9) == "x-amz-acl")
       headers.append(key + ":" + value);
@@ -662,7 +662,7 @@ static int put_local_fd_small_file(const char* path, headers_t meta, int fd) {
   for (headers_t::iterator iter = meta.begin(); iter != meta.end(); ++iter) {
     string key = (*iter).first;
     string value = (*iter).second;
-    if (key == "Content-Type")
+    if (key == "Content-Type" || key == "Content-Encoding")
       headers.append(key + ":" + value);
     if (key.substr(0,9) == "x-amz-acl")
       headers.append(key + ":" + value);
@@ -910,9 +910,16 @@ string initiate_multipart_upload(const char *path, off_t size, headers_t meta) {
 
   ContentType.assign("Content-Type: ");
   string ctype_data;
-  ctype_data.assign(lookupMimeType(path));
+  char *cencoding_data=NULL;
+  ctype_data.assign(lookupMimeType(path, &cencoding_data));
   ContentType.append(ctype_data);
   slist = curl_slist_append(slist, ContentType.c_str());
+  if (cencoding_data != NULL) {
+    string ContentEncoding;
+    ContentEncoding.assign("Content-Encoding: ");
+    ContentEncoding.append(cencoding_data);
+    slist = curl_slist_append(slist, ContentEncoding.c_str());
+  }
 
   // x-amz headers: (a) alphabetical order and (b) no spaces after colon
   acl.assign("x-amz-acl:");
@@ -1277,7 +1284,7 @@ string copy_part(const char *from, const char *to, int part_number, string uploa
   for(headers_t::iterator iter = meta.begin(); iter != meta.end(); ++iter) {
     string key = (*iter).first;
     string value = (*iter).second;
-    if (key == "Content-Type")
+    if (key == "Content-Type" || key == "Content-Encoding")
       headers.append(key + ":" + value);
     if (key == "x-amz-copy-source")
       headers.append(key + ":" + value);
@@ -1460,9 +1467,10 @@ static int s3fs_readlink(const char *path, char *buf, size_t size) {
 
 /**
  * @param s e.g., "index.html"
+ * @param encoding e.g., NULL to return encoding if found
  * @return e.g., "text/html"
  */
-string lookupMimeType(string s) {
+string lookupMimeType(string s, char **encodingPointer) {
   string result("application/octet-stream");
   string::size_type last_pos = s.find_last_of('.');
   string::size_type first_pos = s.find_first_of('.');
@@ -1489,6 +1497,10 @@ string lookupMimeType(string s) {
   }
 
   // if we get here, then we have an extension (ext)
+  if (ext == "gz" || ext == "GZ" || ext2 == "gz" || ext2 == "GZ") {
+    *encodingPointer="gzip";
+  }
+
   mimes_t::const_iterator iter = mimeTypes.find(ext);
   // if the last extension matches a mimeType, then return
   // that mime type
@@ -1531,8 +1543,12 @@ static int create_file_object(const char *path, mode_t mode) {
   string my_url = prepare_url(url.c_str());
   auto_curl_slist headers;
   headers.append("Date: " + date);
-  string contentType(lookupMimeType(path));
+  char *contentEncoding=NULL;
+  string contentType(lookupMimeType(path, &contentEncoding));
   headers.append("Content-Type: " + contentType);
+  if (contentEncoding != NULL) {
+    headers.append("Content-Encoding: " + string(contentEncoding));
+  }
   // x-amz headers: (a) alphabetical order and (b) no spaces after colon
   headers.append("x-amz-acl:" + default_acl);
   headers.append("x-amz-meta-gid:" + str(getgid()));
@@ -1808,7 +1824,11 @@ static int rename_object(const char *from, const char *to) {
   }
 
   meta["x-amz-copy-source"] = urlEncode("/" + bucket + s3_realpath);
-  meta["Content-Type"] = lookupMimeType(to);
+  char *encoding=NULL;
+  meta["Content-Type"] = lookupMimeType(to, &encoding);
+  if (encoding != NULL) {
+    meta["Content-Encoding"] = encoding;
+  }
   meta["x-amz-metadata-directive"] = "REPLACE";
   free(s3_realpath);
 
@@ -1843,7 +1863,11 @@ static int rename_large_object(const char *from, const char *to) {
     return -1;
   }
 
-  meta["Content-Type"] = lookupMimeType(to);
+  char *encoding=NULL;
+  meta["Content-Type"] = lookupMimeType(to, &encoding);
+  if (encoding != NULL) {
+    meta["Content-Encoding"] = string(encoding);
+  }
   meta["x-amz-copy-source"] = urlEncode("/" + bucket + s3_realpath);
   free(s3_realpath);
 

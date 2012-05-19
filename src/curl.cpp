@@ -186,7 +186,7 @@ int curl_get_headers(const char *path, headers_t &meta) {
   for (headers_t::iterator iter = responseHeaders.begin(); iter != responseHeaders.end(); ++iter) {
     string key = (*iter).first;
     string value = (*iter).second;
-    if(key == "Content-Type")
+    if(key == "Content-Type" || key == "Content-Encoding")
       meta[key] = value;
     if(key == "Content-Length")
       meta[key] = value;
